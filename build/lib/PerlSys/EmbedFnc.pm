@@ -94,17 +94,17 @@ sub read_embed_fnc {
             next;
         }
 
+        # Perl 5.36 reworked embed.fnc flags (the file's own header warns meanings
+        # changed as of v5.31.0). Core fns perl-xs needs were reflagged: hv_fetch
+        # 'Abmd'->'AbMdp' (gained 'M'), sv_iv 'Apd'->'CbpdD' ('A'->'C', gained 'D').
+        # So select on linkability, not the old A/!M/!D heuristic.
         next unless
-            # public
-            $flags =~ /A/ &&
+            # public (A) or a linkable Perl_ function (p = Perl_ prefix, b = binary-compat fn)
+            $flags =~ /[Apb]/ &&
             # documented
             $flags =~ /d/ &&
-            # not a macro without c function
-            !($flags =~ /m/ && $flags !~ /b/) &&
-            # not experimental
-            $flags !~ /M/ &&
-            # not deprecated
-            $flags !~ /D/;
+            # not a macro without a real C function
+            !($flags =~ /m/ && $flags !~ /b/);
 
         # va_list is useless in rust anyway
         next if grep $_->[0] =~ /\bva_list\b/, @args;
@@ -112,7 +112,11 @@ sub read_embed_fnc {
         my $link_name = $flags =~ /[pb]/ ? "Perl_$name" : $name;
 
         my $call_name = $name;
-        my $take_pthx = $flags !~ /n/;
+        # Perl 5.36 renamed the "no implicit thread context (pTHX)" embed.fnc flag
+        # from 'n' to 'T' for the interpreter-lifecycle fns (perl_construct, etc.).
+        # Honor both, else pTHX is wrongly prepended and clashes with their explicit
+        # PerlInterpreter* arg ("redefinition of parameter 'my_perl'").
+        my $take_pthx = $flags !~ /[nT]/;
         my $pass_pthx;
 
         # If function has Perl_$name implementation, but no friendly $name macro.

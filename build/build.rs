@@ -58,6 +58,10 @@ fn build(perl: &Perl) {
 }
 
 fn main() {
+    // Regenerate when the generator scripts or embed.fnc data change.
+    println!("cargo:rerun-if-changed=build");
+    println!("cargo:rerun-if-changed=Cargo.toml");
+
     let perl = Perl::new();
 
     perl.run("build/regen.pl");
