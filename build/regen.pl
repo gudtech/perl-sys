@@ -45,6 +45,14 @@ use constant {
         "UNOP_AUX_item",
         "LOOP",
         "CLONE_PARAMS",
+        # added for Perl 5.36: opaque structs now referenced by public-API functions
+        "COP",
+        "REGEXP",
+        "PMOP",
+        "LOGOP",
+        "OPSLAB",
+        "PERL_SI",
+        "yy_parser",
     ],
 
     TYPESIZEMAP => {
@@ -470,6 +478,30 @@ my $functions = [
 my $types = perl_types();
 
 my $struct_defs = read_struct_defs();
+
+# Perl 5.36 compat: drop functions whose return/arg types perl-sys can't map to
+# Rust (e.g. struct mro_alg, PTR_TBL_t, DIR, Malloc_t/Free_t, struct tm, and the
+# fn-ptr typedefs ATEXIT_t/Perl_ppaddr_t/filter_t/...). Runs after the TYPEMAP is
+# populated (perl_types/read_struct_defs) and before wrappers/bindings are built,
+# so every render site stays consistent. None of the dropped functions are used
+# by gt-core's XS. Variadics ("...") are left to the existing va_list handling.
+{
+    my %skipped;
+    $functions = [ grep {
+        my $fn = $_;
+        my $ok = 1;
+        for my $t ($fn->{type}, map { $_->[0] } @{$fn->{args} || []}) {
+            next if !defined($t) || $t eq "..." || $t eq "void";
+            unless (eval { PerlSys::RustSyn::map_type($t); 1 }) {
+                warn "skipping '$fn->{name}': unmappable type '$t'\n"
+                    unless $skipped{$fn->{name}}++;
+                $ok = 0;
+                last;
+            }
+        }
+        $ok;
+    } @$functions ];
+}
 
 my ($wrapper_src, $wrapper_defs) = build_wrappers($functions);
 
